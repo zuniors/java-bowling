@@ -1,9 +1,12 @@
 package qna.domain;
 
-import org.hibernate.annotations.Where;
+import qna.CannotDeleteException;
+import qna.exception.ErrorMessage;
 
 import javax.persistence.*;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 @Entity
@@ -18,10 +21,8 @@ public class Question extends AbstractEntity {
     @JoinColumn(foreignKey = @ForeignKey(name = "fk_question_writer"))
     private User writer;
 
-    @OneToMany(mappedBy = "question", cascade = CascadeType.ALL)
-    @Where(clause = "deleted = false")
-    @OrderBy("id ASC")
-    private List<Answer> answers = new ArrayList<>();
+    @Embedded
+    private Answers answers = new Answers();
 
     private boolean deleted = false;
 
@@ -43,18 +44,8 @@ public class Question extends AbstractEntity {
         return title;
     }
 
-    public Question setTitle(String title) {
-        this.title = title;
-        return this;
-    }
-
     public String getContents() {
         return contents;
-    }
-
-    public Question setContents(String contents) {
-        this.contents = contents;
-        return this;
     }
 
     public User getWriter() {
@@ -66,26 +57,40 @@ public class Question extends AbstractEntity {
         return this;
     }
 
-    public void addAnswer(Answer answer) {
+    public void addAnswer(final Answer answer) {
         answer.toQuestion(this);
         answers.add(answer);
     }
 
-    public boolean isOwner(User loginUser) {
-        return writer.equals(loginUser);
+    public void verifyOwner(final User loginUser) {
+        if (!writer.isSame(loginUser)) {
+            throw new CannotDeleteException(ErrorMessage.NO_PERMISSION_TO_DELETE_QUESTION);
+        }
     }
 
-    public Question setDeleted(boolean deleted) {
-        this.deleted = deleted;
-        return this;
+    public List<DeleteHistory> delete(final User user) {
+        verifyOwner(user);
+
+        List<DeleteHistory> deleteHistories = new ArrayList<>();
+        deleteHistories.addAll(deleteQuestion());
+        deleteHistories.addAll(deleteAnswers(user));
+
+        return deleteHistories;
+    }
+
+    private List<DeleteHistory> deleteQuestion() {
+        deleted = Boolean.TRUE;
+
+        DeleteHistory deleteHistory = new DeleteHistory(ContentType.QUESTION, getId(), writer, LocalDateTime.now());
+        return Collections.singletonList(deleteHistory);
+    }
+
+    private List<DeleteHistory> deleteAnswers(final User user) {
+        return answers.delete(user);
     }
 
     public boolean isDeleted() {
         return deleted;
-    }
-
-    public List<Answer> getAnswers() {
-        return answers;
     }
 
     @Override
